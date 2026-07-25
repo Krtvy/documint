@@ -68,12 +68,6 @@ class UploadResponse(BaseModel):
     processing_time_seconds: float
 
 
-class ErrorResponse(BaseModel):
-    """Standard error response."""
-    error: str
-    detail: Optional[str] = None
-
-
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str
