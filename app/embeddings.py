@@ -5,7 +5,7 @@ Uses the all-MiniLM-L6-v2 model (384 dimensions, fast and good quality).
 """
 
 from sentence_transformers import SentenceTransformer
-from typing import List, Union
+from typing import List
 import numpy as np
 
 from app.config import get_settings
