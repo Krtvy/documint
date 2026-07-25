@@ -30,7 +30,7 @@ from app.embeddings import generate_embeddings, preload_model
 from app.rag import query_document
 from app.models import (
     QueryRequest, QueryResponse, DocumentResponse, DocumentListResponse,
-    UploadResponse, ErrorResponse, HealthResponse
+    UploadResponse, HealthResponse
 )
 
 settings = get_settings()
