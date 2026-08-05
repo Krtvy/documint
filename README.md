@@ -1,4 +1,3 @@
-cat > README.md << 'EOF'
 # 🌿 DocuMint - AI-Powered Document Q&A System
 
 A production-ready RAG (Retrieval Augmented Generation) system that lets you upload documents and ask questions about them using natural language.
