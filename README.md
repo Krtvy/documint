@@ -180,6 +180,6 @@ MIT License
 
 ## 👨‍💻 Author
 
-**Kartavya Joshi**
+**Kartavvya Joshi**
 - GitHub: [@Krtvy](https://github.com/Krtvy)
 - Email: kartavvyajoshi@gmail.com
