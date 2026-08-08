@@ -41,26 +41,43 @@ settings = get_settings()
 # Application Lifecycle
 # =============================================================================
 
+# Startup problems are recorded here rather than raised, so /health can
+# report them. See the note in lifespan() for why.
+STARTUP_ERRORS: dict[str, str] = {}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Application startup and shutdown events.
-    - Initialize database on startup
-    - Preload embedding model
+    Application startup and shutdown.
+
+    Neither step is allowed to kill the process. If the database is
+    unreachable or the API key is missing, raising here takes the whole
+    worker down and the platform answers every request with a bare 502,
+    which says nothing about the cause. Recording the failure instead lets
+    /health name the actual problem while the process stays up.
     """
-    print("🚀 Starting DocuMint...")
-    
-    # Initialize database tables
-    init_db()
-    
-    # Preload embedding model (avoids delay on first request)
-    preload_model()
-    
-    print("✅ DocuMint is ready!")
-    
+    print("Starting DocuMint...")
+
+    try:
+        init_db()
+        print("database: ready")
+    except Exception as e:
+        STARTUP_ERRORS["database"] = f"{type(e).__name__}: {e}"
+        print(f"database: FAILED — {type(e).__name__}: {e}")
+
+    try:
+        preload_model()
+        print("embeddings client: ready")
+    except Exception as e:
+        STARTUP_ERRORS["embeddings"] = f"{type(e).__name__}: {e}"
+        print(f"embeddings client: FAILED — {type(e).__name__}: {e}")
+
+    print("DocuMint is up" + (" with errors" if STARTUP_ERRORS else ""))
+
     yield
-    
-    print("👋 Shutting down DocuMint...")
+
+    print("Shutting down DocuMint...")
 
 
 # =============================================================================
@@ -117,6 +134,15 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         db_status = f"error: {str(e)}"
         status = "degraded"
+
+    # Anything that failed during startup is reported here too, otherwise a
+    # missing API key looks fine until the first upload fails.
+    if STARTUP_ERRORS:
+        status = "degraded"
+        for where, msg in STARTUP_ERRORS.items():
+            if where == "database" and db_status == "connected":
+                continue  # recovered since startup
+            db_status = f"{db_status} | startup {where}: {msg}"
 
     return HealthResponse(
         status=status,
