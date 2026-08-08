@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocuMint — ask a document, get a cited answer</title>
+<style>
+  :root {
+    --bg: #0F1114;
+    --panel: #171A1F;
+    --panel-2: #1E222899;
+    --line: #262B33;
+    --ink: #E8EBEF;
+    --ink-2: #AEB6C0;
+    --muted: #737C88;
+    --accent: #4ADE9B;
+    --accent-dim: #4ADE9B22;
+    --warn: #F0A45C;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 20px 80px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+
+  header { padding: 48px 0 8px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  h1 {
+    font-size: 30px; font-weight: 680; letter-spacing: -.02em;
+    margin: 10px 0 10px; text-wrap: balance;
+  }
+  .lede { color: var(--ink-2); max-width: 62ch; margin: 0; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  .stack { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .chip {
+    display: inline-flex; gap: 8px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  }
+  .chip span {
+    border: 1px solid var(--line); border-radius: 20px; padding: 3px 10px;
+  }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 32px 0; }
+
+  .step-label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+
+  /* dropzone */
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: 12px;
+    padding: 34px 20px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--panel);
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-dim); }
+  #drop .big { font-size: 15.5px; font-weight: 600; }
+  #drop .small { color: var(--muted); font-size: 13px; margin-top: 5px; }
+  #file { display: none; }
+
+  .doc {
+    display: none; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px; margin-top: 12px;
+  }
+  .doc.show { display: block; }
+  .doc .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .doc .name { font-weight: 620; }
+  .doc .meta { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  /* ask */
+  .ask { display: none; margin-top: 26px; }
+  .ask.show { display: block; }
+  .askbar { display: flex; gap: 10px; }
+  input[type=text] {
+    flex: 1; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 13px 15px; font-family: var(--sans); font-size: 15px;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: var(--accent); color: #0A0D10; border: none;
+    border-radius: 10px; padding: 13px 22px; font-weight: 650;
+    font-size: 15px; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  .suggest { margin-top: 10px; display: flex; gap: 7px; flex-wrap: wrap; }
+  .suggest b {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    align-self: center; font-weight: 400;
+  }
+  .suggest button {
+    background: transparent; color: var(--ink-2); border: 1px solid var(--line);
+    border-radius: 20px; padding: 5px 12px; font-size: 12.5px; font-weight: 500;
+  }
+  .suggest button:hover { border-color: var(--accent); color: var(--ink); }
+
+  /* answer */
+  .answer { display: none; margin-top: 24px; }
+  .answer.show { display: block; }
+  .answer .body {
+    background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent); border-radius: 0 12px 12px 0;
+    padding: 18px 20px; font-size: 15.5px; white-space: pre-wrap;
+  }
+  .cite {
+    background: var(--accent-dim); color: var(--accent);
+    border-radius: 4px; padding: 1px 6px;
+    font-family: var(--mono); font-size: .82em; font-weight: 700;
+  }
+  .used {
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    margin-top: 10px;
+  }
+  details {
+    margin-top: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 16px;
+  }
+  summary { cursor: pointer; font-size: 13.5px; color: var(--ink-2); }
+  summary::marker { color: var(--muted); }
+  .src {
+    border-top: 1px solid var(--line); padding: 11px 0 3px;
+    font-size: 13.5px; color: var(--ink-2);
+  }
+  .src .n {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    display: block; margin-bottom: 3px;
+  }
+
+  .note {
+    background: var(--panel-2); border-radius: 10px; padding: 13px 16px;
+    font-size: 13.5px; color: var(--ink-2); margin-top: 26px;
+  }
+  .note b { color: var(--ink); }
+
+  .msg { margin-top: 12px; font-size: 14px; }
+  .msg.err { color: var(--warn); }
+  .msg.busy { color: var(--muted); }
+
+  footer {
+    margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  }
+  footer a { color: var(--ink-2); }
+
+  @media (max-width: 560px) {
+    .askbar { flex-direction: column; }
+    h1 { font-size: 25px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">DocuMint</div>
+    <h1>Ask a document a question, get an answer you can trace.</h1>
+    <p class="lede">
+      Upload a PDF, Word, PowerPoint or Excel file. It is split into chunks,
+      embedded, and stored in Postgres. Every answer comes back with
+      <b>citations pointing at the chunk it came from</b>, because an answer you
+      cannot check is not worth much.
+    </p>
+    <div class="stack">
+      <div class="chip">
+        <span>FastAPI</span><span>Postgres + pgvector</span><span>HNSW index</span>
+        <span>1536-dim embeddings</span><span>cited answers</span>
+      </div>
+    </div>
+  </header>
+
+  <hr>
+
+  <div class="step-label">1 — Upload a document</div>
+  <div id="drop">
+    <div class="big">Drop a file here, or click to choose</div>
+    <div class="small">PDF, DOCX, PPTX or XLSX · up to 10MB</div>
+  </div>
+  <input type="file" id="file" accept=".pdf,.docx,.pptx,.xlsx">
+  <div id="upmsg" class="msg"></div>
+
+  <div class="doc" id="doc">
+    <div class="row">
+      <span class="name" id="docname"></span>
+      <span class="meta" id="docmeta"></span>
+    </div>
+  </div>
+
+  <div class="ask" id="ask">
+    <hr>
+    <div class="step-label">2 — Ask something</div>
+    <div class="askbar">
+      <input type="text" id="q" placeholder="What does this document say about..." autocomplete="off">
+      <button id="send">Ask</button>
+    </div>
+    <div class="suggest">
+      <b>try:</b>
+      <button class="s">Summarise this in three points</button>
+      <button class="s">What are the key dates or numbers?</button>
+      <button class="s">What is the CEO's salary?</button>
+    </div>
+    <div id="qmsg" class="msg"></div>
+  </div>
+
+  <div class="answer" id="answer">
+    <div class="step-label">Answer</div>
+    <div class="body" id="answerbody"></div>
+    <div class="used" id="used"></div>
+    <details id="sourcesbox">
+      <summary>Show the chunks this came from</summary>
+      <div id="sources"></div>
+    </details>
+  </div>
+
+  <div class="note">
+    <b>Try the third suggested question.</b> It asks for something the document
+    almost certainly does not contain. A grounded system should say it does not
+    know rather than invent an answer, and that is the part worth testing.
+  </div>
+
+  <footer>
+    <a href="/docs">API docs</a> · <a href="/health">health</a> ·
+    <a href="https://github.com/Krtvy/documint">source</a>
+  </footer>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let docId = null;
+
+const drop = $("drop"), fileInput = $("file");
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  if (e.dataTransfer.files.length) upload(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) upload(fileInput.files[0]);
+});
+
+async function upload(file) {
+  $("upmsg").className = "msg busy";
+  $("upmsg").textContent = `Reading ${file.name}, chunking and embedding. This takes a few seconds.`;
+  $("doc").classList.remove("show");
+  $("ask").classList.remove("show");
+  $("answer").classList.remove("show");
+
+  const body = new FormData();
+  body.append("file", file);
+
+  try {
+    const res = await fetch("/upload", { method: "POST", body });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+
+    docId = data.document_id;
+    $("upmsg").textContent = "";
+    $("docname").textContent = data.filename;
+    $("docmeta").textContent =
+      `${data.total_chunks} chunks · ${data.processing_time_seconds}s`;
+    $("doc").classList.add("show");
+    $("ask").classList.add("show");
+    $("q").focus();
+  } catch (err) {
+    $("upmsg").className = "msg err";
+    $("upmsg").textContent = err.message;
+  }
+}
+
+async function ask(question) {
+  if (!docId || !question.trim()) return;
+  $("send").disabled = true;
+  $("qmsg").className = "msg busy";
+  $("qmsg").textContent = "Searching the document and writing an answer...";
+  $("answer").classList.remove("show");
+
+  try {
+    const res = await fetch("/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document_id: docId, question }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Query failed");
+
+    $("qmsg").textContent = "";
+    // Highlight [Source N] markers so the citations are visible at a glance.
+    $("answerbody").innerHTML = escapeHtml(data.answer)
+      .replace(/\[Source \d+\]/g, (m) => `<span class="cite">${m}</span>`);
+    $("used").textContent =
+      `${data.chunks_used} chunks retrieved · answered by ${data.model}`;
+
+    $("sources").innerHTML = (data.sources || []).map((s, i) =>
+      `<div class="src"><span class="n">Source ${i + 1} · chunk ${s.chunk_index + 1}</span>${escapeHtml(s.preview)}</div>`
+    ).join("");
+    $("sourcesbox").style.display = (data.sources || []).length ? "block" : "none";
+
+    $("answer").classList.add("show");
+  } catch (err) {
+    $("qmsg").className = "msg err";
+    $("qmsg").textContent = err.message;
+  } finally {
+    $("send").disabled = false;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+$("send").addEventListener("click", () => ask($("q").value));
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") ask($("q").value); });
+document.querySelectorAll(".suggest .s").forEach((b) =>
+  b.addEventListener("click", () => { $("q").value = b.textContent; ask(b.textContent); }));
+</script>
+</body>
+</html>

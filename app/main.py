@@ -14,8 +14,10 @@ Endpoints:
 import os
 import time
 import shutil
+from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
@@ -105,11 +107,26 @@ app.add_middleware(
 # Endpoints
 # =============================================================================
 
-@app.get("/", tags=["Root"])
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+
+@app.get("/", include_in_schema=False)
 async def root():
-    """Welcome endpoint."""
+    """
+    Serve the interface. Someone opening the base URL should be able to try
+    the thing, not read a JSON index of routes.
+    """
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return {"message": "DocuMint API", "docs": "/docs", "health": "/health"}
+
+
+@app.get("/api", tags=["Root"])
+async def api_index():
+    """Machine readable index of the endpoints."""
     return {
-        "message": "Welcome to DocuMint! 📄🤖",
+        "service": "DocuMint",
         "docs": "/docs",
         "endpoints": {
             "upload": "POST /upload",
