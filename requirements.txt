@@ -1,21 +1,25 @@
-# DocuMint - Requirements (Python 3.14 Compatible)
+# DocuMint - Requirements
 
 # Core Framework
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+gunicorn>=23.0.0
 python-multipart>=0.0.6
 
-# Document Extraction (using pypdf instead of pymupdf for compatibility)
+# Document Extraction
 pypdf>=3.17.0
 python-docx>=1.1.0
 python-pptx>=0.6.23
 openpyxl>=3.1.2
 
-# AI & Embeddings
-langchain>=0.1.0
+# Chunking
 langchain-text-splitters>=0.0.1
-sentence-transformers>=2.2.2
-anthropic>=0.18.0
+
+# Embeddings + Generation
+# Both run over OpenRouter, which speaks the OpenAI wire format.
+# sentence-transformers was removed because it
+# pulls PyTorch in (~2GB) and will not fit a 512MB container.
+openai>=1.40.0
 
 # Database
 psycopg2-binary>=2.9.9

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
     content TEXT NOT NULL,
-    embedding vector(384) NOT NULL,  -- 384 dimensions for all-MiniLM-L6-v2
+    embedding vector(1536) NOT NULL,  -- openai/text-embedding-3-small via OpenRouter
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

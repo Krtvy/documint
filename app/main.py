@@ -16,6 +16,7 @@ import time
 import shutil
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 
@@ -109,14 +110,16 @@ async def health_check(db: Session = Depends(get_db)):
     Verifies database connection and model availability.
     """
     try:
-        # Test database connection
-        db.execute("SELECT 1")
+        # SQLAlchemy 2.0 requires raw SQL to be wrapped in text().
+        db.execute(text("SELECT 1"))
         db_status = "connected"
+        status = "healthy"
     except Exception as e:
         db_status = f"error: {str(e)}"
-    
+        status = "degraded"
+
     return HealthResponse(
-        status="healthy",
+        status=status,
         database=db_status,
         embedding_model=settings.embedding_model
     )

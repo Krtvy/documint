@@ -1,10 +1,11 @@
 """
 DocuMint RAG Pipeline
-Retrieval Augmented Generation using pgvector + Claude API.
+Retrieval Augmented Generation using pgvector + OpenRouter.
 """
 
 from typing import List, Dict
-from anthropic import Anthropic
+
+from openai import OpenAI
 
 from app.config import get_settings
 from app.database import search_similar_chunks
@@ -12,15 +13,27 @@ from app.embeddings import generate_embedding
 
 settings = get_settings()
 
+_client = None
+
 
 # =========================
-# CLAUDE CLIENT
+# CLIENT
 # =========================
-def get_claude_client() -> Anthropic:
+def get_client() -> OpenAI:
     """
-    Create and return Anthropic Claude client.
+    Return a cached client pointed at OpenRouter.
     """
-    return Anthropic(api_key=settings.anthropic_api_key)
+    global _client
+    if _client is None:
+        if not settings.openrouter_api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY is not set. Cannot generate answers."
+            )
+        _client = OpenAI(
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+        )
+    return _client
 
 
 # =========================
@@ -68,7 +81,7 @@ def generate_answer(
     document_name: str,
 ) -> Dict:
     """
-    Generate answer using Claude based ONLY on retrieved context.
+    Generate an answer from the retrieved context only.
     """
 
     # ---- Build context safely (prevent prompt explosion)
@@ -106,26 +119,42 @@ Question:
 Answer using only the context above.
 """
 
-    # ---- Claude call
-    client = get_claude_client()
+    # ---- Generation call
+    client = get_client()
 
-    try:
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": user_prompt}
-            ],
-        )
+    # Free models get rate limited without warning, so walk the fallback list
+    # rather than failing the whole request on the first 429.
+    candidates = [settings.generation_model] + [
+        m.strip() for m in settings.fallback_models.split(",") if m.strip()
+    ]
 
-        answer = response.content[0].text
+    answer = None
+    model_used = None
+    last_error = None
 
-    except Exception:
-        answer = (
-            "I encountered an error while generating the answer. "
-            "Please try again."
-        )
+    for model in candidates:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=1024,
+            )
+            text = (response.choices[0].message.content or "").strip()
+            if text:
+                answer, model_used = text, model
+                break
+            last_error = "empty response"
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+    if answer is None:
+        # Surface the reason rather than hiding it. A silent generic failure
+        # here is what makes RAG systems impossible to debug in production.
+        answer = f"Could not generate an answer. Last error: {last_error}"
+        model_used = "none"
 
     # ---- Source metadata
     sources = [
@@ -143,7 +172,7 @@ Answer using only the context above.
     return {
         "answer": answer,
         "sources": sources,
-        "model": settings.claude_model,
+        "model": model_used,
         "chunks_used": len(context_chunks),
     }
 
@@ -177,7 +206,7 @@ def query_document(
                 "to answer your question."
             ),
             "sources": [],
-            "model": settings.claude_model,
+            "model": settings.generation_model,
             "chunks_used": 0,
         }
 
