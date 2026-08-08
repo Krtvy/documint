@@ -49,7 +49,7 @@ class DocumentChunk(Base):
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_index = Column(Integer, nullable=False)  # Order of chunk in document
     content = Column(Text, nullable=False)  # The actual text
-    embedding = Column(Vector(384), nullable=False)  # 384 dimensions for all-MiniLM-L6-v2
+    embedding = Column(Vector(1536), nullable=False)  # openai/text-embedding-3-small via OpenRouter
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationship to document

@@ -1,116 +1,107 @@
 """
 DocuMint Embeddings
-Generates vector embeddings using sentence-transformers.
-Uses the all-MiniLM-L6-v2 model (384 dimensions, fast and good quality).
+
+Embeddings are generated over the OpenRouter API rather than a local model.
+
+Why: this used to run sentence-transformers with all-MiniLM-L6-v2, which pulls
+PyTorch in as a dependency. That is roughly 2GB installed and needs more RAM
+than a small container has, so the service could not be deployed on a 512MB
+instance. Moving to an API call removes the heavy dependency entirely. The
+tradeoff is a network round trip per batch, which is why batching matters here.
+
+OpenRouter speaks the OpenAI wire format, so the openai SDK works against it
+with only the base_url changed.
 """
 
-from sentence_transformers import SentenceTransformer
 from typing import List
+
 import numpy as np
+from openai import OpenAI
 
 from app.config import get_settings
 
 settings = get_settings()
 
-# Global model instance (loaded once, reused)
-_model = None
+_client = None
+
+# Keep batches modest so one failed request does not cost a whole document.
+_MAX_BATCH = 64
 
 
-def get_model() -> SentenceTransformer:
-    """
-    Get or load the embedding model.
-    
-    Uses a global instance to avoid reloading the model
-    on every request (models are large and slow to load).
-    """
-    global _model
-    
-    if _model is None:
-        print(f"Loading embedding model: {settings.embedding_model}...")
-        _model = SentenceTransformer(settings.embedding_model)
-        print("✅ Embedding model loaded!")
-    
-    return _model
+def get_client() -> OpenAI:
+    """Return a cached client pointed at OpenRouter."""
+    global _client
+    if _client is None:
+        if not settings.openrouter_api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY is not set. Embeddings cannot be generated."
+            )
+        _client = OpenAI(
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+        )
+    return _client
+
+
+def _embed(texts: List[str]) -> List[List[float]]:
+    """Embed a list of texts, batching to stay within request limits."""
+    client = get_client()
+
+    out: List[List[float]] = []
+    for start in range(0, len(texts), _MAX_BATCH):
+        batch = texts[start : start + _MAX_BATCH]
+        response = client.embeddings.create(
+            model=settings.embedding_model,
+            input=batch,
+        )
+        # The API does not promise ordering, so sort by index before using.
+        ordered = sorted(response.data, key=lambda d: d.index)
+        out.extend(d.embedding for d in ordered)
+
+    return out
 
 
 def generate_embedding(text: str) -> List[float]:
-    """
-    Generate embedding for a single text string.
-    
-    Args:
-        text: The text to embed
-    
-    Returns:
-        List of floats representing the embedding vector (384 dimensions)
-    """
-    model = get_model()
-    
-    # Generate embedding
-    embedding = model.encode(text, convert_to_numpy=True)
-    
-    # Convert to list for JSON serialization and database storage
-    return embedding.tolist()
+    """Embed a single search query."""
+    return _embed([text])[0]
 
 
-def generate_embeddings(texts: List[str], batch_size: int = 32) -> List[List[float]]:
+def generate_embeddings(texts: List[str], batch_size: int = 64) -> List[List[float]]:
     """
-    Generate embeddings for multiple texts (batch processing).
-    
-    More efficient than calling generate_embedding() in a loop.
-    
-    Args:
-        texts: List of texts to embed
-        batch_size: Number of texts to process at once
-    
-    Returns:
-        List of embedding vectors
+    Embed many document chunks at once.
+
+    batch_size is accepted for backwards compatibility with existing callers,
+    but the internal batch limit is what actually governs request size.
     """
-    model = get_model()
-    
-    # Generate embeddings in batch
-    embeddings = model.encode(
-        texts,
-        batch_size=batch_size,
-        convert_to_numpy=True,
-        show_progress_bar=len(texts) > 100  # Show progress for large batches
-    )
-    
-    # Convert to list of lists
-    return embeddings.tolist()
+    if not texts:
+        return []
+    return _embed(texts)
 
 
 def cosine_similarity(embedding1: List[float], embedding2: List[float]) -> float:
     """
-    Calculate cosine similarity between two embeddings.
-    
-    Useful for comparing similarity without database lookup.
-    
-    Args:
-        embedding1: First embedding vector
-        embedding2: Second embedding vector
-    
-    Returns:
-        Similarity score between -1 and 1 (1 = identical)
+    Cosine similarity between two vectors, for comparing without a database hit.
+
+    Returns 0.0 when either vector has no magnitude, since the angle between
+    them is undefined in that case.
     """
     vec1 = np.array(embedding1)
     vec2 = np.array(embedding2)
-    
-    # Cosine similarity formula: dot(a,b) / (norm(a) * norm(b))
-    dot_product = np.dot(vec1, vec2)
+
     norm1 = np.linalg.norm(vec1)
     norm2 = np.linalg.norm(vec2)
-    
+
     if norm1 == 0 or norm2 == 0:
         return 0.0
-    
-    return dot_product / (norm1 * norm2)
+
+    return float(np.dot(vec1, vec2) / (norm1 * norm2))
 
 
 def preload_model():
     """
-    Preload the model at application startup.
-    
-    Call this during FastAPI startup to avoid
-    loading delay on first request.
+    Kept so startup code that calls this still works.
+
+    There is no local model to warm up now. This builds the client early so a
+    missing API key fails at boot instead of on the first upload.
     """
-    get_model()
+    get_client()
